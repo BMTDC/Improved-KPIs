@@ -1,54 +1,126 @@
-tableau.extensions.initializeAsync().then(function() {
-    // Initialization succeeded!
-    // Add your JavaScript code here to call the Extensions API
-});
-
 function initialize() {
     tableau.extensions.initializeAsync().then(function () {
-        // Initialization succeeded! Get the worksheet
         var worksheet = tableau.extensions.worksheetContent.worksheet;
 
-        // Get the dimensions and measures included in the worksheet
-        worksheet.getSummaryDataAsync().then(function (dataTable) {
+        render(worksheet);
 
-            var fields = dataTable.columns;
-            var data = dataTable.data;
-
-            // All fields included in the worksheet
-            console.log("Fields:", fields);
-
-            // Names of all dimensions/measures
-            fields.forEach(function (field) {
-                console.log(
-                    "Field:",
-                    field.fieldName,
-                    "Data type:",
-                    field.dataType
-                );
-            });
-
-            // The actual worksheet data
-            console.log("Data:", data);
-
-            document.getElementById("resultBox").innerHTML =
-                "I'm running in a worksheet named <strong>" +
-                worksheet.name +
-                "</strong><br><br>" +
-                "Fields included:<br>" +
-                fields.map(function (field) {
-                    return field.fieldName;
-                }).join("<br>");
-
-        }).catch(function (err) {
-            document.getElementById("resultBox").innerHTML =
-                "Error while getting worksheet data: " +
-                err.toString();
+        worksheet.addEventListener(tableau.TableauEventType.SummaryDataChanged, function () {
+            render(worksheet);
         });
-
     }, function (err) {
-        // Something went wrong in initialization
-        document.getElementById("resultBox").innerHTML =
-            "Error while Initializing: " +
-            err.toString();
+        showMessage("Error while Initializing: " + escapeHtml(err.toString()));
     });
 }
+
+async function render(worksheet) {
+    try {
+        var encodings = await getEncodings(worksheet);
+
+        if (!encodings.date || !encodings.value) {
+            showMessage("Drag a continuous date onto <strong>Date</strong> and a field onto <strong>Value</strong>.");
+            return;
+        }
+
+        var dataTable = await worksheet.getSummaryDataAsync({ ignoreSelection: true });
+
+        var dateIndex = findColumnIndex(dataTable.columns, encodings.date);
+        var valueIndex = findColumnIndex(dataTable.columns, encodings.value);
+
+        if (dateIndex === -1 || valueIndex === -1) {
+            showMessage("Could not match the encoded fields to the worksheet data.<br>Encoded: " +
+                escapeHtml(encodings.date.name) + ", " + escapeHtml(encodings.value.name) +
+                "<br>Columns: " + escapeHtml(dataTable.columns.map(function (column) {
+                    return column.fieldName;
+                }).join(", ")));
+            return;
+        }
+
+        var rows = dataTable.data
+            .map(function (row) {
+                return {
+                    date: toDate(row[dateIndex].nativeValue),
+                    dateLabel: row[dateIndex].formattedValue,
+                    value: row[valueIndex].nativeValue,
+                    valueLabel: row[valueIndex].formattedValue
+                };
+            })
+            .filter(function (row) {
+                return row.date !== null;
+            });
+
+        if (rows.length === 0) {
+            showMessage("No data in the selected date range.");
+            return;
+        }
+
+        var distinctDates = Array.from(new Set(rows.map(function (row) {
+            return row.date.getTime();
+        }))).sort(function (a, b) {
+            return b - a;
+        });
+
+        var latestRows = rows.filter(function (row) {
+            return row.date.getTime() === distinctDates[0];
+        });
+
+        var previousRows = distinctDates.length > 1
+            ? rows.filter(function (row) {
+                return row.date.getTime() === distinctDates[1];
+            })
+            : [];
+
+        var latest = summarize(latestRows);
+        var previous = previousRows.length > 0 ? summarize(previousRows) : null;
+
+        drawKpi(encodings.value.name, latest, latestRows[0].dateLabel, previous);
+    } catch (err) {
+        showMessage("Error while rendering: " + escapeHtml(err.toString()));
+    }
+}
+
+async function getEncodings(worksheet) {
+    var spec = await worksheet.getVisualSpecificationAsync();
+    var marks = spec.marksSpecifications[spec.activeMarksSpecificationIndex];
+    var result = {};
+
+    marks.encodings.forEach(function (encoding) {
+        result[encoding.id] = encoding.field;
+    });
+
+    return result;
+}
+
+function findColumnIndex(columns, field) {
+    var exact = columns.find(function (column) {
+        return column.fieldName === field.name;
+    });
+
+    if (exact) {
+        return exact.index;
+    }
+
+    var partial = columns.find(function (column) {
+        return column.fieldName.indexOf(field.name) !== -1 || field.name.indexOf(column.fieldName) !== -1;
+    });
+
+    return partial ? partial.index : -1;
+}
+
+function toDate(value) {
+    if (value === null || value === undefined) {
+        return null;
+    }
+
+    var date = value instanceof Date ? value : new Date(value);
+
+    return isNaN(date.getTime()) ? null : date;
+}
+
+function summarize(rows) {
+    var numeric = rows.every(function (row) {
+        return typeof row.value === "number";
+    });
+
+    if (numeric) {
+        var total = rows.reduce(function (sum, row) {
+     
