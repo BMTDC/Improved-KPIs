@@ -1,41 +1,94 @@
+var LEVELS = ["Latest", "Year", "Month", "Week", "Day"];
+
+var CLS = {
+    content: "m-auto w-full",
+    latestWrap: "flex flex-col items-center gap-1",
+    title: "text-sm font-medium uppercase tracking-wide text-gray-500",
+    groupTitle: "mb-2 text-sm font-medium uppercase tracking-wide text-gray-500",
+    value: "text-5xl font-bold leading-tight text-gray-800",
+    date: "text-sm text-gray-400",
+    delta: "mt-1 text-sm font-semibold",
+    grid: "grid w-full grid-cols-[repeat(auto-fill,minmax(110px,1fr))] gap-2",
+    card: "flex flex-col items-center rounded-lg border border-gray-200 bg-gray-50 px-2 py-2",
+    cardLabel: "text-xs font-medium uppercase tracking-wide text-gray-500",
+    cardValue: "text-2xl font-bold text-gray-800",
+    cardDelta: "text-xs font-semibold",
+    message: "px-4 text-sm text-gray-400",
+    up: "text-green-700",
+    down: "text-red-700",
+    flat: "text-gray-500"
+};
+
+var state = {
+    title: "",
+    rows: [],
+    days: [],
+    fromIdx: 0,
+    toIdx: 0,
+    level: 0
+};
+
 function initialize() {
-    showMessage("Step 1: initializing extension");
+    tableau.extensions.initializeAsync().then(function () {
+        var worksheet = tableau.extensions.worksheetContent.worksheet;
 
-    try {
-        tableau.extensions.initializeAsync().then(function () {
-            showMessage("Step 2: extension initialized");
+        setupControls();
+        loadData(worksheet);
 
-            var worksheet = tableau.extensions.worksheetContent.worksheet;
-
-            render(worksheet);
-
-            worksheet.addEventListener(tableau.TableauEventType.SummaryDataChanged, function () {
-                render(worksheet);
-            });
-        }, function (err) {
-            showMessage("Error while Initializing: " + escapeHtml(err.toString()));
+        worksheet.addEventListener(tableau.TableauEventType.SummaryDataChanged, function () {
+            loadData(worksheet);
         });
-    } catch (err) {
-        showMessage("Error before initializing: " + escapeHtml(err.toString()));
-    }
+    }, function (err) {
+        showMessage("Error while Initializing: " + escapeHtml(err.toString()));
+    });
 }
 
-async function render(worksheet) {
-    try {
-        showMessage("Step 3: reading encodings");
+function setupControls() {
+    el("fromSlider").addEventListener("input", function () {
+        var value = parseInt(this.value, 10);
+        if (value > state.toIdx) {
+            state.toIdx = value;
+            el("toSlider").value = value;
+        }
+        state.fromIdx = value;
+        draw();
+    });
 
+    el("toSlider").addEventListener("input", function () {
+        var value = parseInt(this.value, 10);
+        if (value < state.fromIdx) {
+            state.fromIdx = value;
+            el("fromSlider").value = value;
+        }
+        state.toIdx = value;
+        draw();
+    });
+
+    el("expandBtn").addEventListener("click", function () {
+        if (state.level < LEVELS.length - 1) {
+            state.level++;
+            draw();
+        }
+    });
+
+    el("collapseBtn").addEventListener("click", function () {
+        if (state.level > 0) {
+            state.level--;
+            draw();
+        }
+    });
+}
+
+async function loadData(worksheet) {
+    try {
         var encodings = await getEncodings(worksheet);
 
         if (!encodings.date || !encodings.value) {
-            showMessage("Drag a continuous date onto <strong>Date</strong> and a field onto <strong>Value</strong>.<br>Found encodings: " + escapeHtml(Object.keys(encodings).join(", ")));
+            showMessage("Drag a continuous date onto <strong>Date</strong> and a field onto <strong>Value</strong>.");
             return;
         }
 
-        showMessage("Step 4: reading summary data");
-
         var dataTable = await worksheet.getSummaryDataAsync({ ignoreSelection: true });
-
-        showMessage("Step 5: processing " + dataTable.data.length + " rows");
 
         var dateIndex = findColumnIndex(dataTable.columns, encodings.date);
         var valueIndex = findColumnIndex(dataTable.columns, encodings.value);
@@ -52,14 +105,13 @@ async function render(worksheet) {
         var rows = dataTable.data
             .map(function (row) {
                 return {
-                    date: toDate(row[dateIndex].nativeValue),
-                    dateLabel: row[dateIndex].formattedValue,
+                    day: toDay(row[dateIndex].nativeValue),
                     value: row[valueIndex].nativeValue,
                     valueLabel: row[valueIndex].formattedValue
                 };
             })
             .filter(function (row) {
-                return row.date !== null;
+                return row.day !== null;
             });
 
         if (rows.length === 0) {
@@ -67,29 +119,223 @@ async function render(worksheet) {
             return;
         }
 
-        var distinctDates = Array.from(new Set(rows.map(function (row) {
-            return row.date.getTime();
+        var days = Array.from(new Set(rows.map(function (row) {
+            return row.day;
         }))).sort(function (a, b) {
-            return b - a;
+            return a - b;
         });
 
-        var latestRows = rows.filter(function (row) {
-            return row.date.getTime() === distinctDates[0];
-        });
+        applySelection(days);
 
-        var previousRows = distinctDates.length > 1
-            ? rows.filter(function (row) {
-                return row.date.getTime() === distinctDates[1];
-            })
-            : [];
+        state.title = encodings.value.name;
+        state.rows = rows;
+        state.days = days;
 
-        var latest = summarize(latestRows);
-        var previous = previousRows.length > 0 ? summarize(previousRows) : null;
+        var slidersMax = days.length - 1;
+        el("fromSlider").max = slidersMax;
+        el("toSlider").max = slidersMax;
+        el("fromSlider").value = state.fromIdx;
+        el("toSlider").value = state.toIdx;
 
-        drawKpi(encodings.value.name, latest, latestRows[0].dateLabel, previous);
+        draw();
     } catch (err) {
         showMessage("Error while rendering: " + escapeHtml(err.toString()));
     }
+}
+
+function applySelection(newDays) {
+    var oldDays = state.days;
+    var hadSelection = oldDays.length > 0 && !(state.fromIdx === 0 && state.toIdx === oldDays.length - 1);
+    var lastIdx = newDays.length - 1;
+
+    if (!hadSelection) {
+        state.fromIdx = 0;
+        state.toIdx = lastIdx;
+        return;
+    }
+
+    var prevFrom = oldDays[state.fromIdx];
+    var prevTo = oldDays[state.toIdx];
+
+    var fromIdx = newDays.findIndex(function (day) {
+        return day >= prevFrom;
+    });
+
+    var toIdx = -1;
+    for (var i = lastIdx; i >= 0; i--) {
+        if (newDays[i] <= prevTo) {
+            toIdx = i;
+            break;
+        }
+    }
+
+    if (fromIdx === -1 || toIdx === -1 || fromIdx > toIdx) {
+        state.fromIdx = 0;
+        state.toIdx = lastIdx;
+    } else {
+        state.fromIdx = fromIdx;
+        state.toIdx = toIdx;
+    }
+}
+
+function draw() {
+    var from = state.days[state.fromIdx];
+    var to = state.days[state.toIdx];
+
+    var rows = state.rows.filter(function (row) {
+        return row.day >= from && row.day <= to;
+    });
+
+    updateControls(from, to);
+
+    if (state.level === 0) {
+        drawLatest(rows);
+    } else {
+        drawGroups(rows, state.level);
+    }
+}
+
+function setControlsVisible(visible) {
+    el("controls").classList.toggle("hidden", !visible);
+    el("controls").classList.toggle("flex", visible);
+}
+
+function updateControls(from, to) {
+    var lastIdx = state.days.length - 1;
+    var left = lastIdx > 0 ? (state.fromIdx / lastIdx) * 100 : 0;
+    var right = lastIdx > 0 ? (state.toIdx / lastIdx) * 100 : 100;
+
+    setControlsVisible(true);
+    el("fromLabel").textContent = formatDay(from);
+    el("toLabel").textContent = formatDay(to);
+    el("rangeFill").style.left = left + "%";
+    el("rangeFill").style.width = Math.max(right - left, 0) + "%";
+    el("levelLabel").textContent = LEVELS[state.level];
+    el("collapseBtn").disabled = state.level === 0;
+    el("expandBtn").disabled = state.level === LEVELS.length - 1;
+}
+
+function drawLatest(rows) {
+    var days = Array.from(new Set(rows.map(function (row) {
+        return row.day;
+    }))).sort(function (a, b) {
+        return b - a;
+    });
+
+    var latestRows = rows.filter(function (row) {
+        return row.day === days[0];
+    });
+
+    var previousRows = days.length > 1
+        ? rows.filter(function (row) {
+            return row.day === days[1];
+        })
+        : [];
+
+    var latest = summarize(latestRows);
+    var previous = previousRows.length > 0 ? summarize(previousRows) : null;
+    var suffix = days.length > 1 ? "vs " + formatDay(days[1]) : "";
+
+    setContent(
+        "<div class='" + CLS.latestWrap + "'>" +
+        "<div class='" + CLS.title + "'>" + escapeHtml(state.title) + "</div>" +
+        "<div class='" + CLS.value + "'>" + escapeHtml(latest.label) + "</div>" +
+        "<div class='" + CLS.date + "'>" + escapeHtml(formatDay(days[0])) + "</div>" +
+        deltaHtml(latest, previous, suffix, CLS.delta) +
+        "</div>"
+    );
+}
+
+function drawGroups(rows, level) {
+    var groups = new Map();
+
+    rows.forEach(function (row) {
+        var info = groupInfo(row.day, level);
+
+        if (!groups.has(info.key)) {
+            groups.set(info.key, { label: info.label, firstDay: row.day, rows: [] });
+        }
+
+        var group = groups.get(info.key);
+        group.rows.push(row);
+
+        if (row.day < group.firstDay) {
+            group.firstDay = row.day;
+        }
+    });
+
+    var ordered = Array.from(groups.values()).sort(function (a, b) {
+        return a.firstDay - b.firstDay;
+    });
+
+    var cards = ordered.map(function (group, index) {
+        var current = summarize(group.rows);
+        var previous = index > 0 ? summarize(ordered[index - 1].rows) : null;
+
+        return "<div class='" + CLS.card + "'>" +
+            "<div class='" + CLS.cardLabel + "'>" + escapeHtml(group.label) + "</div>" +
+            "<div class='" + CLS.cardValue + "'>" + escapeHtml(current.label) + "</div>" +
+            deltaHtml(current, previous, "", CLS.cardDelta) +
+            "</div>";
+    }).reverse();
+
+    setContent(
+        "<div class='" + CLS.groupTitle + "'>" + escapeHtml(state.title) + " per " + LEVELS[level].toLowerCase() + "</div>" +
+        "<div class='" + CLS.grid + "'>" + cards.join("") + "</div>"
+    );
+}
+
+function groupInfo(day, level) {
+    var date = new Date(day);
+    var year = date.getUTCFullYear();
+
+    if (level === 1) {
+        return { key: String(year), label: String(year) };
+    }
+
+    if (level === 2) {
+        return {
+            key: year + "-" + pad(date.getUTCMonth() + 1),
+            label: date.toLocaleDateString(undefined, { month: "short", year: "numeric", timeZone: "UTC" })
+        };
+    }
+
+    if (level === 3) {
+        var iso = isoWeek(date);
+        return {
+            key: iso.year + "-W" + pad(iso.week),
+            label: "W" + pad(iso.week) + " " + iso.year
+        };
+    }
+
+    return { key: String(day), label: formatDay(day) };
+}
+
+function isoWeek(date) {
+    var target = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+    var weekday = target.getUTCDay() || 7;
+    target.setUTCDate(target.getUTCDate() + 4 - weekday);
+    var yearStart = new Date(Date.UTC(target.getUTCFullYear(), 0, 1));
+    var week = Math.ceil(((target - yearStart) / 86400000 + 1) / 7);
+
+    return { year: target.getUTCFullYear(), week: week };
+}
+
+function deltaHtml(current, previous, suffix, cssBase) {
+    if (!current.isNumeric || !previous || !previous.isNumeric) {
+        return "";
+    }
+
+    var diff = current.raw - previous.raw;
+    var pct = previous.raw !== 0 ? (diff / Math.abs(previous.raw)) * 100 : null;
+    var colour = diff > 0 ? CLS.up : diff < 0 ? CLS.down : CLS.flat;
+    var arrow = diff > 0 ? "&#9650;" : diff < 0 ? "&#9660;" : "&#9632;";
+
+    return "<div class='" + cssBase + " " + colour + "'>" +
+        arrow + " " + formatNumber(diff) +
+        (pct !== null ? " (" + pct.toFixed(1) + "%)" : "") +
+        (suffix ? " " + escapeHtml(suffix) : "") +
+        "</div>";
 }
 
 async function getEncodings(worksheet) {
@@ -120,14 +366,25 @@ function findColumnIndex(columns, field) {
     return partial ? partial.index : -1;
 }
 
-function toDate(value) {
-    if (value === null || value === undefined) {
+function toDay(value) {
+    if (value === null || value === undefined || value === "") {
         return null;
+    }
+
+    if (typeof value === "string") {
+        var match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+        if (match) {
+            return Date.UTC(parseInt(match[1], 10), parseInt(match[2], 10) - 1, parseInt(match[3], 10));
+        }
     }
 
     var date = value instanceof Date ? value : new Date(value);
 
-    return isNaN(date.getTime()) ? null : date;
+    if (isNaN(date.getTime())) {
+        return null;
+    }
+
+    return Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
 function summarize(rows) {
@@ -158,36 +415,29 @@ function summarize(rows) {
     };
 }
 
+function formatDay(day) {
+    return new Date(day).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" });
+}
+
 function formatNumber(value) {
     return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
-function drawKpi(title, latest, dateLabel, previous) {
-    var deltaHtml = "";
+function pad(number) {
+    return number < 10 ? "0" + number : String(number);
+}
 
-    if (latest.isNumeric && previous && previous.isNumeric) {
-        var diff = latest.raw - previous.raw;
-        var pct = previous.raw !== 0 ? (diff / Math.abs(previous.raw)) * 100 : null;
-        var cssClass = diff > 0 ? "up" : diff < 0 ? "down" : "";
-        var arrow = diff > 0 ? "&#9650;" : diff < 0 ? "&#9660;" : "&#9632;";
-
-        deltaHtml =
-            "<div class='kpi-delta " + cssClass + "'>" +
-            arrow + " " + formatNumber(diff) +
-            (pct !== null ? " (" + pct.toFixed(1) + "%)" : "") +
-            " vs previous" +
-            "</div>";
-    }
-
-    document.getElementById("resultBox").innerHTML =
-        "<div class='kpi-title'>" + escapeHtml(title) + "</div>" +
-        "<div class='kpi-value'>" + escapeHtml(latest.label) + "</div>" +
-        "<div class='kpi-date'>" + escapeHtml(dateLabel) + "</div>" +
-        deltaHtml;
+function setContent(html) {
+    el("resultBox").innerHTML = "<div class='" + CLS.content + "'>" + html + "</div>";
 }
 
 function showMessage(html) {
-    document.getElementById("resultBox").innerHTML = "<div class='message' style='color:#666;'>" + html + "</div>";
+    setControlsVisible(false);
+    setContent("<div class='" + CLS.message + "'>" + html + "</div>");
+}
+
+function el(id) {
+    return document.getElementById(id);
 }
 
 function escapeHtml(text) {

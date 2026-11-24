@@ -5,34 +5,28 @@
     <title>Latest Value KPI</title>
     <script src="tableau.extensions.1.latest.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-    <style type="text/tailwindcss">
-        @layer components {
-            .kpi-title {
-                @apply text-sm font-medium uppercase tracking-wide text-gray-500;
-            }
-            .kpi-value {
-                @apply text-5xl font-bold leading-tight text-gray-800;
-            }
-            .kpi-date {
-                @apply text-sm text-gray-400;
-            }
-            .kpi-delta {
-                @apply mt-1 text-sm font-semibold text-gray-500;
-            }
-            .up {
-                @apply text-green-700;
-            }
-            .down {
-                @apply text-red-700;
-            }
-            .message {
-                @apply px-4 text-sm text-gray-400;
-            }
-        }
-    </style>
 </head>
 <body onload="initialize()" class="m-0 h-screen bg-white font-[Calibri,Arial,sans-serif]">
-    <div id="resultBox" class="flex h-full flex-col items-center justify-center gap-1 text-center"></div>
+    <div class="box-border flex h-full flex-col gap-2 p-3">
+        <div id="resultBox" class="flex min-h-0 flex-1 flex-col overflow-auto text-center"></div>
+        <div id="controls" class="hidden flex-col gap-1">
+            <div class="flex items-center justify-between gap-2">
+                <button id="collapseBtn" type="button" title="Collapse" class="h-7 w-7 cursor-pointer rounded-md border border-gray-300 bg-white text-base font-bold leading-none text-gray-700 hover:bg-gray-100 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-white">&minus;</button>
+                <span id="levelLabel" class="text-xs font-medium uppercase tracking-wide text-gray-500"></span>
+                <button id="expandBtn" type="button" title="Expand" class="h-7 w-7 cursor-pointer rounded-md border border-gray-300 bg-white text-base font-bold leading-none text-gray-700 hover:bg-gray-100 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-white">+</button>
+            </div>
+            <div class="flex justify-between text-xs text-gray-500">
+                <span id="fromLabel"></span>
+                <span id="toLabel"></span>
+            </div>
+            <div class="relative h-6">
+                <div class="absolute inset-x-0 top-[11px] h-0.5 bg-gray-300"></div>
+                <div id="rangeFill" class="absolute top-2.5 h-1 bg-[#1f4e79]"></div>
+                <input id="fromSlider" type="range" min="0" max="0" step="1" value="0" aria-label="Start date" class="pointer-events-none absolute left-0 top-0 m-0 h-6 w-full appearance-none bg-transparent [&::-webkit-slider-runnable-track]:bg-transparent [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:mt-[5px] [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:bg-[#1f4e79] [&::-webkit-slider-thumb]:shadow-[0_0_0_1px_#1f4e79] [&::-moz-range-thumb]:pointer-events-auto [&::-moz-range-thumb]:h-3.5 [&::-moz-range-thumb]:w-3.5 [&::-moz-range-thumb]:cursor-pointer [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-white [&::-moz-range-thumb]:bg-[#1f4e79] [&::-moz-range-thumb]:shadow-[0_0_0_1px_#1f4e79]">
+                <input id="toSlider" type="range" min="0" max="0" step="1" value="0" aria-label="End date" class="pointer-events-none absolute left-0 top-0 m-0 h-6 w-full appearance-none bg-transparent [&::-webkit-slider-runnable-track]:bg-transparent [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:mt-[5px] [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:bg-[#1f4e79] [&::-webkit-slider-thumb]:shadow-[0_0_0_1px_#1f4e79] [&::-moz-range-thumb]:pointer-events-auto [&::-moz-range-thumb]:h-3.5 [&::-moz-range-thumb]:w-3.5 [&::-moz-range-thumb]:cursor-pointer [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-white [&::-moz-range-thumb]:bg-[#1f4e79] [&::-moz-range-thumb]:shadow-[0_0_0_1px_#1f4e79]">
+            </div>
+        </div>
+    </div>
     <script src="script.js"></script>
 </body>
 </html>
