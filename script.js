@@ -1,5 +1,18 @@
 var LEVELS = ["Latest", "Year", "Month", "Week", "Day"];
 
+var DEFAULTS = {
+    title: "",
+    aggregation: "sum",
+    decimals: "auto",
+    prefix: "",
+    suffix: "",
+    defaultLevel: "0",
+    showDelta: "true",
+    higherIsBetter: "true",
+    showSlider: "true",
+    accentColor: "#1f4e79"
+};
+
 var CLS = {
     content: "m-auto w-full",
     latestWrap: "flex flex-col items-center gap-1",
@@ -8,14 +21,14 @@ var CLS = {
     value: "text-5xl font-bold leading-tight text-gray-800",
     date: "text-sm text-gray-400",
     delta: "mt-1 text-sm font-semibold",
-    grid: "grid w-full grid-cols-[repeat(auto-fill,minmax(110px,1fr))] gap-2",
-    card: "flex flex-col items-center rounded-lg border border-gray-200 bg-gray-50 px-2 py-2",
+    grid: "flex w-full flex-wrap justify-center gap-2",
+    card: "flex w-[120px] flex-col items-center rounded-lg border border-gray-200 bg-gray-50 px-2 py-2",
     cardLabel: "text-xs font-medium uppercase tracking-wide text-gray-500",
     cardValue: "text-2xl font-bold text-gray-800",
     cardDelta: "text-xs font-semibold",
     message: "px-4 text-sm text-gray-400",
-    up: "text-green-700",
-    down: "text-red-700",
+    good: "text-green-700",
+    bad: "text-red-700",
     flat: "text-gray-500"
 };
 
@@ -25,12 +38,16 @@ var state = {
     days: [],
     fromIdx: 0,
     toIdx: 0,
-    level: 0
+    level: 0,
+    settings: Object.assign({}, DEFAULTS)
 };
 
 function initialize() {
-    tableau.extensions.initializeAsync().then(function () {
+    tableau.extensions.initializeAsync({ configure: openSettings }).then(function () {
         var worksheet = tableau.extensions.worksheetContent.worksheet;
+
+        loadSettings();
+        state.level = parseInt(state.settings.defaultLevel, 10);
 
         setupControls();
         loadData(worksheet);
@@ -40,6 +57,34 @@ function initialize() {
         });
     }, function (err) {
         showMessage("Error while Initializing: " + escapeHtml(err.toString()));
+    });
+}
+
+function loadSettings() {
+    var saved = tableau.extensions.settings.getAll();
+    var settings = {};
+
+    Object.keys(DEFAULTS).forEach(function (key) {
+        settings[key] = saved[key] !== undefined ? saved[key] : DEFAULTS[key];
+    });
+
+    state.settings = settings;
+    document.body.style.setProperty("--accent", settings.accentColor);
+}
+
+function openSettings() {
+    var url = new URL("config.html", window.location.href).href;
+
+    tableau.extensions.ui.displayDialogAsync(url, "", { height: 560, width: 420 }).then(function () {
+        loadSettings();
+        state.level = parseInt(state.settings.defaultLevel, 10);
+        if (state.days.length > 0) {
+            draw();
+        }
+    }).catch(function (err) {
+        if (err.errorCode !== tableau.ErrorCodes.DialogClosedByUser) {
+            showMessage("Error in settings dialog: " + escapeHtml(err.toString()));
+        }
     });
 }
 
@@ -231,8 +276,11 @@ function updateControls(from, to, levels) {
     var left = lastIdx > 0 ? (state.fromIdx / lastIdx) * 100 : 0;
     var right = lastIdx > 0 ? (state.toIdx / lastIdx) * 100 : 100;
     var pos = levels.indexOf(state.level);
+    var showSlider = state.settings.showSlider === "true";
 
     setControlsVisible(true);
+    el("rangeArea").classList.toggle("hidden", !showSlider);
+    el("rangeArea").classList.toggle("flex", showSlider);
     el("fromLabel").textContent = formatDay(from);
     el("toLabel").textContent = formatDay(to);
     el("rangeFill").style.left = left + "%";
@@ -240,6 +288,10 @@ function updateControls(from, to, levels) {
     el("levelLabel").textContent = LEVELS[state.level];
     el("collapseBtn").disabled = pos <= 0;
     el("expandBtn").disabled = pos >= levels.length - 1;
+}
+
+function displayTitle() {
+    return state.settings.title.trim() !== "" ? state.settings.title : state.title;
 }
 
 function drawLatest(rows) {
@@ -265,7 +317,7 @@ function drawLatest(rows) {
 
     setContent(
         "<div class='" + CLS.latestWrap + "'>" +
-        "<div class='" + CLS.title + "'>" + escapeHtml(state.title) + "</div>" +
+        "<div class='" + CLS.title + "'>" + escapeHtml(displayTitle()) + "</div>" +
         "<div class='" + CLS.value + "'>" + escapeHtml(latest.label) + "</div>" +
         "<div class='" + CLS.date + "'>" + escapeHtml(formatDay(days[0])) + "</div>" +
         deltaHtml(latest, previous, suffix, CLS.delta) +
@@ -307,7 +359,7 @@ function drawGroups(rows, level) {
     }).reverse();
 
     setContent(
-        "<div class='" + CLS.groupTitle + "'>" + escapeHtml(state.title) + " per " + LEVELS[level].toLowerCase() + "</div>" +
+        "<div class='" + CLS.groupTitle + "'>" + escapeHtml(displayTitle()) + " per " + LEVELS[level].toLowerCase() + "</div>" +
         "<div class='" + CLS.grid + "'>" + cards.join("") + "</div>"
     );
 }
@@ -349,17 +401,19 @@ function isoWeek(date) {
 }
 
 function deltaHtml(current, previous, suffix, cssBase) {
-    if (!current.isNumeric || !previous || !previous.isNumeric) {
+    if (state.settings.showDelta !== "true" || !current.isNumeric || !previous || !previous.isNumeric) {
         return "";
     }
 
     var diff = current.raw - previous.raw;
     var pct = previous.raw !== 0 ? (diff / Math.abs(previous.raw)) * 100 : null;
-    var colour = diff > 0 ? CLS.up : diff < 0 ? CLS.down : CLS.flat;
+    var higherIsBetter = state.settings.higherIsBetter === "true";
+    var isGood = higherIsBetter ? diff > 0 : diff < 0;
+    var colour = diff === 0 ? CLS.flat : isGood ? CLS.good : CLS.bad;
     var arrow = diff > 0 ? "&#9650;" : diff < 0 ? "&#9660;" : "&#9632;";
 
     return "<div class='" + cssBase + " " + colour + "'>" +
-        arrow + " " + formatNumber(diff) +
+        arrow + " " + escapeHtml(formatNumber(diff)) +
         (pct !== null ? " (" + pct.toFixed(1) + "%)" : "") +
         (suffix ? " " + escapeHtml(suffix) : "") +
         "</div>";
@@ -415,19 +469,37 @@ function toDay(value) {
 }
 
 function summarize(rows) {
-    var numeric = rows.every(function (row) {
+    var numeric = rows.length > 0 && rows.every(function (row) {
         return typeof row.value === "number";
     });
 
     if (numeric) {
-        var total = rows.reduce(function (sum, row) {
-            return sum + row.value;
-        }, 0);
+        var values = rows.map(function (row) {
+            return row.value;
+        });
+        var raw;
+
+        switch (state.settings.aggregation) {
+            case "avg":
+                raw = values.reduce(function (sum, v) { return sum + v; }, 0) / values.length;
+                break;
+            case "min":
+                raw = Math.min.apply(null, values);
+                break;
+            case "max":
+                raw = Math.max.apply(null, values);
+                break;
+            default:
+                raw = values.reduce(function (sum, v) { return sum + v; }, 0);
+        }
+
+        var useTableauFormat = state.settings.decimals === "auto" && rows.length === 1;
+        var body = useTableauFormat ? rows[0].valueLabel : formatNumber(raw);
 
         return {
             isNumeric: true,
-            raw: total,
-            label: rows.length === 1 ? rows[0].valueLabel : formatNumber(total)
+            raw: raw,
+            label: state.settings.prefix + body + state.settings.suffix
         };
     }
 
@@ -447,7 +519,13 @@ function formatDay(day) {
 }
 
 function formatNumber(value) {
-    return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+    if (state.settings.decimals === "auto") {
+        return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+    }
+
+    var decimals = parseInt(state.settings.decimals, 10);
+
+    return value.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
 }
 
 function pad(number) {
