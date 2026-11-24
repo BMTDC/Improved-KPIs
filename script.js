@@ -1,0 +1,13 @@
+ tableau.extensions.initializeAsync().then(function() {
+      // Initialization succeeded! 
+      //Add your JavaScript code here to call the Extensions API
+  });function initialize() {
+    tableau.extensions.initializeAsync().then(function () {
+     // Initialization succeeded! Get the dashboard
+        var dashboard = tableau.extensions.dashboardContent.dashboard;
+        document.getElementById("resultBox").innerHTML = "I'm running in a dashboard named <strong>" + dashboard.name + "</strong>";
+     }, function (err) {
+     // something went wrong in initialization
+      document.getElementById("resultBox").innerHTML = "Error while Initializing: " + err.toString();
+    });
+}
