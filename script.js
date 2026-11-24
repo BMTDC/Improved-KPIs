@@ -1,27 +1,41 @@
 function initialize() {
-    tableau.extensions.initializeAsync().then(function () {
-        var worksheet = tableau.extensions.worksheetContent.worksheet;
+    showMessage("Step 1: initializing extension");
 
-        render(worksheet);
+    try {
+        tableau.extensions.initializeAsync().then(function () {
+            showMessage("Step 2: extension initialized");
 
-        worksheet.addEventListener(tableau.TableauEventType.SummaryDataChanged, function () {
+            var worksheet = tableau.extensions.worksheetContent.worksheet;
+
             render(worksheet);
+
+            worksheet.addEventListener(tableau.TableauEventType.SummaryDataChanged, function () {
+                render(worksheet);
+            });
+        }, function (err) {
+            showMessage("Error while Initializing: " + escapeHtml(err.toString()));
         });
-    }, function (err) {
-        showMessage("Error while Initializing: " + escapeHtml(err.toString()));
-    });
+    } catch (err) {
+        showMessage("Error before initializing: " + escapeHtml(err.toString()));
+    }
 }
 
 async function render(worksheet) {
     try {
+        showMessage("Step 3: reading encodings");
+
         var encodings = await getEncodings(worksheet);
 
         if (!encodings.date || !encodings.value) {
-            showMessage("Drag a continuous date onto <strong>Date</strong> and a field onto <strong>Value</strong>.");
+            showMessage("Drag a continuous date onto <strong>Date</strong> and a field onto <strong>Value</strong>.<br>Found encodings: " + escapeHtml(Object.keys(encodings).join(", ")));
             return;
         }
 
+        showMessage("Step 4: reading summary data");
+
         var dataTable = await worksheet.getSummaryDataAsync({ ignoreSelection: true });
+
+        showMessage("Step 5: processing " + dataTable.data.length + " rows");
 
         var dateIndex = findColumnIndex(dataTable.columns, encodings.date);
         var valueIndex = findColumnIndex(dataTable.columns, encodings.value);
@@ -123,4 +137,62 @@ function summarize(rows) {
 
     if (numeric) {
         var total = rows.reduce(function (sum, row) {
-     
+            return sum + row.value;
+        }, 0);
+
+        return {
+            isNumeric: true,
+            raw: total,
+            label: rows.length === 1 ? rows[0].valueLabel : formatNumber(total)
+        };
+    }
+
+    var labels = Array.from(new Set(rows.map(function (row) {
+        return row.valueLabel;
+    })));
+
+    return {
+        isNumeric: false,
+        raw: null,
+        label: labels.join(", ")
+    };
+}
+
+function formatNumber(value) {
+    return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+
+function drawKpi(title, latest, dateLabel, previous) {
+    var deltaHtml = "";
+
+    if (latest.isNumeric && previous && previous.isNumeric) {
+        var diff = latest.raw - previous.raw;
+        var pct = previous.raw !== 0 ? (diff / Math.abs(previous.raw)) * 100 : null;
+        var cssClass = diff > 0 ? "up" : diff < 0 ? "down" : "";
+        var arrow = diff > 0 ? "&#9650;" : diff < 0 ? "&#9660;" : "&#9632;";
+
+        deltaHtml =
+            "<div class='kpi-delta " + cssClass + "'>" +
+            arrow + " " + formatNumber(diff) +
+            (pct !== null ? " (" + pct.toFixed(1) + "%)" : "") +
+            " vs previous" +
+            "</div>";
+    }
+
+    document.getElementById("resultBox").innerHTML =
+        "<div class='kpi-title'>" + escapeHtml(title) + "</div>" +
+        "<div class='kpi-value'>" + escapeHtml(latest.label) + "</div>" +
+        "<div class='kpi-date'>" + escapeHtml(dateLabel) + "</div>" +
+        deltaHtml;
+}
+
+function showMessage(html) {
+    document.getElementById("resultBox").innerHTML = "<div class='message' style='color:#666;'>" + html + "</div>";
+}
+
+function escapeHtml(text) {
+    return String(text)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+}
