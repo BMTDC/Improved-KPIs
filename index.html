@@ -1,22 +1,38 @@
- <html>
-   <head>
-     <meta charset="utf-8">
-     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-     <meta name="viewport" content="width=device-width, initial-scale=1">
-
-     <!-- Tableau Extensions API Library  -->
-     <!-- library is in the /lib directory -->
-     <script src="./tableau.extensions.1.latest.js"></script>
-
-     <!-- Your JavaScript code that uses the Extensions API goes here -->
-     <script src="./script.js"></script>
-     </head>
-     <body>
-       
-         <div>
-           <h1>Improved KPI!</h1>
-           <p id="resultBox" class="lead">Not Initialized</p>
-           <button id="initializeButton" onclick=initialize() class="btn btn-primary">Initialize Extensions API</button>
-         </div>
-     </body>
- </html>
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Latest Value KPI</title>
+    <script src="tableau.extensions.1.latest.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <style type="text/tailwindcss">
+        @layer components {
+            .kpi-title {
+                @apply text-sm font-medium uppercase tracking-wide text-gray-500;
+            }
+            .kpi-value {
+                @apply text-5xl font-bold leading-tight text-gray-800;
+            }
+            .kpi-date {
+                @apply text-sm text-gray-400;
+            }
+            .kpi-delta {
+                @apply mt-1 text-sm font-semibold text-gray-500;
+            }
+            .up {
+                @apply text-green-700;
+            }
+            .down {
+                @apply text-red-700;
+            }
+            .message {
+                @apply px-4 text-sm text-gray-400;
+            }
+        }
+    </style>
+</head>
+<body onload="initialize()" class="m-0 h-screen bg-white font-[Calibri,Arial,sans-serif]">
+    <div id="resultBox" class="flex h-full flex-col items-center justify-center gap-1 text-center"></div>
+    <script src="kpi.js"></script>
+</body>
+</html>
