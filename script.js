@@ -65,18 +65,43 @@ function setupControls() {
     });
 
     el("expandBtn").addEventListener("click", function () {
-        if (state.level < LEVELS.length - 1) {
-            state.level++;
+        var levels = getLevels();
+        var pos = levels.indexOf(state.level);
+        if (pos < levels.length - 1) {
+            state.level = levels[pos + 1];
             draw();
         }
     });
 
     el("collapseBtn").addEventListener("click", function () {
-        if (state.level > 0) {
-            state.level--;
+        var levels = getLevels();
+        var pos = levels.indexOf(state.level);
+        if (pos > 0) {
+            state.level = levels[pos - 1];
             draw();
         }
     });
+}
+
+function getLevels() {
+    var years = new Set(state.days.map(function (day) {
+        return new Date(day).getUTCFullYear();
+    }));
+
+    return years.size > 1 ? [0, 1, 2, 3, 4] : [0, 2, 3, 4];
+}
+
+function ensureValidLevel() {
+    var levels = getLevels();
+
+    if (levels.indexOf(state.level) === -1) {
+        var next = levels.find(function (level) {
+            return level > state.level;
+        });
+        state.level = next !== undefined ? next : levels[levels.length - 1];
+    }
+
+    return levels;
 }
 
 async function loadData(worksheet) {
@@ -179,6 +204,7 @@ function applySelection(newDays) {
 }
 
 function draw() {
+    var levels = ensureValidLevel();
     var from = state.days[state.fromIdx];
     var to = state.days[state.toIdx];
 
@@ -186,7 +212,7 @@ function draw() {
         return row.day >= from && row.day <= to;
     });
 
-    updateControls(from, to);
+    updateControls(from, to, levels);
 
     if (state.level === 0) {
         drawLatest(rows);
@@ -200,10 +226,11 @@ function setControlsVisible(visible) {
     el("controls").classList.toggle("flex", visible);
 }
 
-function updateControls(from, to) {
+function updateControls(from, to, levels) {
     var lastIdx = state.days.length - 1;
     var left = lastIdx > 0 ? (state.fromIdx / lastIdx) * 100 : 0;
     var right = lastIdx > 0 ? (state.toIdx / lastIdx) * 100 : 100;
+    var pos = levels.indexOf(state.level);
 
     setControlsVisible(true);
     el("fromLabel").textContent = formatDay(from);
@@ -211,8 +238,8 @@ function updateControls(from, to) {
     el("rangeFill").style.left = left + "%";
     el("rangeFill").style.width = Math.max(right - left, 0) + "%";
     el("levelLabel").textContent = LEVELS[state.level];
-    el("collapseBtn").disabled = state.level === 0;
-    el("expandBtn").disabled = state.level === LEVELS.length - 1;
+    el("collapseBtn").disabled = pos <= 0;
+    el("expandBtn").disabled = pos >= levels.length - 1;
 }
 
 function drawLatest(rows) {
